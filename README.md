@@ -655,11 +655,11 @@ Vue SPA와 Laravel API는 Laravel Sanctum의 세션 쿠키 인증 방식을 사�
 가능하면 다음과 같이 같은 최상위 도메인에서 서비스한다.
 
 ```text
-https://game.example.com
-https://api.example.com
+https://dk.moonscenty.me
+https://dk.moonscenty.me/api/
 ```
 
-또는 Laravel이 API와 Vue 정적 파일을 같은 도메인에서 함께 제공한다.
+또는 프론트엔드와 API를 같은 도메인에서 함께 제공하고, API는 /api/ 접두사를 사용한다.
 
 Sanctum은 별도의 Vue SPA와 Laravel 백엔드를 연결하는 세션 기반 인증에 적합하며, CSRF 보호와 함께 사용할 수 있다.
 
