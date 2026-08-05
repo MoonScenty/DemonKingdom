@@ -1,6 +1,6 @@
 import { Application, Container, Graphics } from 'pixi.js'
 
-const TILE_SIZE = 32
+const TILE_SIZE = 64
 const MAP_WIDTH = 20
 const MAP_HEIGHT = 20
 
