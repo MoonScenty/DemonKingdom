@@ -9,6 +9,7 @@ export async function createPixiApp(container: HTMLElement): Promise<Application
     antialias: true,
   })
 
+  app.canvas.style.touchAction = 'none'
   container.appendChild(app.canvas)
 
   return app

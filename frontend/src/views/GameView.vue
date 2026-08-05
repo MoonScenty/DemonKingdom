@@ -2,6 +2,7 @@
 import type { Application } from 'pixi.js'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import ResourceBar from '../components/game/ResourceBar.vue'
+import { CameraController } from '../game/core/CameraController'
 import { CityRenderer } from '../game/renderer/CityRenderer'
 import { createPixiApp, destroyPixiApp } from '../game/core/PixiApp'
 import { useWorldStore } from '../stores/worldStore'
@@ -11,12 +12,15 @@ const worldStore = useWorldStore()
 
 let pixiApp: Application | null = null
 let cityRenderer: CityRenderer | null = null
+let cameraController: CameraController | null = null
 
 onMounted(async () => {
   if (!cityCanvasContainer.value) return
 
   pixiApp = await createPixiApp(cityCanvasContainer.value)
   cityRenderer = new CityRenderer(pixiApp)
+  cameraController = new CameraController(pixiApp, cityRenderer.view)
+  cameraController.centerView()
 
   try {
     await worldStore.loadWorld(1)
@@ -26,6 +30,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cameraController?.destroy()
   cityRenderer?.destroy()
   if (pixiApp) destroyPixiApp(pixiApp)
 })
