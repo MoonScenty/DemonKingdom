@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import { useAuthStore } from '../stores/authStore'
+import { extractErrorMessage } from '../utils/apiError'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -31,8 +32,8 @@ async function submit() {
       passwordConfirmation: passwordConfirmation.value,
     })
     router.push({ name: 'game' })
-  } catch {
-    errorMessage.value = '회원 가입에 실패했습니다. 입력값을 확인해 주세요.'
+  } catch (error) {
+    errorMessage.value = extractErrorMessage(error, '회원 가입에 실패했습니다. 입력값을 확인해 주세요.')
   } finally {
     isSubmitting.value = false
   }

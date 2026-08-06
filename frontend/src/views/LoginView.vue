@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import { useAuthStore } from '../stores/authStore'
+import { extractErrorMessage } from '../utils/apiError'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -18,8 +19,8 @@ async function submit() {
   try {
     await authStore.login({ email: email.value, password: password.value })
     router.push({ name: 'game' })
-  } catch {
-    errorMessage.value = '로그인에 실패했습니다. 이메일과 비밀번호를 확인해 주세요.'
+  } catch (error) {
+    errorMessage.value = extractErrorMessage(error, '로그인에 실패했습니다. 이메일과 비밀번호를 확인해 주세요.')
   } finally {
     isSubmitting.value = false
   }

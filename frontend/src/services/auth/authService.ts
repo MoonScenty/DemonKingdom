@@ -1,12 +1,14 @@
-import { httpClient } from '../api/httpClient'
+import { ensureCsrfCookie, httpClient } from '../api/httpClient'
 import type { AuthUser, LoginPayload, RegisterPayload } from '../../types/auth'
 
 export async function register(payload: RegisterPayload): Promise<AuthUser> {
+  await ensureCsrfCookie()
   const { data } = await httpClient.post<AuthUser>('/register', payload)
   return data
 }
 
 export async function login(payload: LoginPayload): Promise<AuthUser> {
+  await ensureCsrfCookie()
   const { data } = await httpClient.post<AuthUser>('/login', payload)
   return data
 }
