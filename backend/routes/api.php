@@ -21,5 +21,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/worlds/{world}/state', [WorldController::class, 'state']);
         Route::get('/worlds/{world}/changes', [WorldController::class, 'changes']);
         Route::post('/worlds/{world}/buildings', [BuildingCommandController::class, 'place']);
+        Route::patch('/worlds/{world}/buildings/{building}/move', [BuildingCommandController::class, 'move']);
+        Route::delete('/worlds/{world}/buildings/{building}', [BuildingCommandController::class, 'remove']);
     });
 });

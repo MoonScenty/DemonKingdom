@@ -25,11 +25,16 @@ export class CityRenderer {
   private readonly terrainLayer = new Container()
   private readonly buildingLayer = new Container()
   private readonly previewLayer = new Container()
+  private buildingClickHandler: ((buildingId: number) => void) | null = null
 
   constructor(app: Application) {
     app.stage.addChild(this.view)
     this.view.addChild(this.terrainLayer, this.buildingLayer, this.previewLayer)
     this.ready = this.drawTileGrid()
+  }
+
+  onBuildingClick(handler: (buildingId: number) => void): void {
+    this.buildingClickHandler = handler
   }
 
   async setBuildings(buildings: Building[], footprints: Map<string, BuildingFootprint>): Promise<void> {
@@ -45,6 +50,13 @@ export class CityRenderer {
       const texture = await Assets.load<Texture>(url)
       const sprite = new Sprite(texture)
       this.anchorBuildingSprite(sprite, building.x, building.y, footprint)
+
+      sprite.eventMode = 'static'
+      sprite.cursor = 'pointer'
+      sprite.on('pointertap', (event) => {
+        event.stopPropagation()
+        this.buildingClickHandler?.(building.id)
+      })
 
       this.buildingLayer.addChild(sprite)
     }

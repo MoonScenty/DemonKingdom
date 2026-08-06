@@ -11,6 +11,7 @@ export async function sendCommand<TPayload, TChanges>(
   type: string,
   payload: TPayload,
   baseRevision: number,
+  method: 'post' | 'patch' | 'delete' = 'post',
 ): Promise<CommandResponse<TChanges>> {
   const command: CommandRequest<TPayload> = {
     commandId: createCommandId(),
@@ -20,7 +21,7 @@ export async function sendCommand<TPayload, TChanges>(
   }
 
   try {
-    const { data } = await httpClient.post<CommandResponse<TChanges>>(url, command)
+    const { data } = await httpClient.request<CommandResponse<TChanges>>({ url, method, data: command })
     return data
   } catch (error) {
     if (error instanceof AxiosError && error.response?.status === 409) {
