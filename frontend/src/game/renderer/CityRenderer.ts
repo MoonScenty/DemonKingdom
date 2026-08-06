@@ -1,76 +1,129 @@
 import { Application, Assets, Container, Graphics, Sprite, type Texture } from 'pixi.js'
+import { getBuildingTextureUrl } from './buildingAssets'
 import { getTerrainTileUrl } from './terrainAssets'
+import { diamondPoints, footprintScreenBounds, tileToScreen, MAP_HEIGHT, MAP_WIDTH } from './isometric'
 import { pickTileVariant, TERRAIN_VARIANT_COUNT } from './tileVariant'
+import type { Building } from '../../types/game'
 
-const TILE_WIDTH = 128
-const TILE_HEIGHT = 64
-const MAP_WIDTH = 20
-const MAP_HEIGHT = 20
 const DEFAULT_TERRAIN = 'grass'
+// 지형 아트는 64x64 캔버스 안에 위쪽 여백을 두고 그려져 있어, 다이아몬드 꼭짓점을 격자 좌표에 맞추려면 보정이 필요하다.
+const TERRAIN_TOP_PADDING = 6
+// 건물 원화가 타일 대비 커 보여서 가로세로 비율은 유지한 채 2/5 크기로 줄인다.
+const BUILDING_SCALE = 2 / 5
+const PLACEMENT_VALID_COLOR = 0x3b82f6
+const PLACEMENT_INVALID_COLOR = 0xff5c5c
 
-function tileToScreen(tileX: number, tileY: number): { screenX: number; screenY: number } {
-  const originX = (MAP_HEIGHT * TILE_WIDTH) / 2
-
-  return {
-    screenX: originX + (tileX - tileY) * (TILE_WIDTH / 2),
-    screenY: (tileX + tileY) * (TILE_HEIGHT / 2),
-  }
-}
-
-function diamondPoints(screenX: number, screenY: number): number[] {
-  const halfWidth = TILE_WIDTH / 2
-  const halfHeight = TILE_HEIGHT / 2
-
-  return [
-    screenX,
-    screenY,
-    screenX + halfWidth,
-    screenY + halfHeight,
-    screenX,
-    screenY + TILE_HEIGHT,
-    screenX - halfWidth,
-    screenY + halfHeight,
-  ]
+export interface BuildingFootprint {
+  width: number
+  height: number
 }
 
 export class CityRenderer {
   readonly view = new Container()
   readonly ready: Promise<void>
 
+  private readonly terrainLayer = new Container()
+  private readonly buildingLayer = new Container()
+  private readonly previewLayer = new Container()
+
   constructor(app: Application) {
     app.stage.addChild(this.view)
+    this.view.addChild(this.terrainLayer, this.buildingLayer, this.previewLayer)
     this.ready = this.drawTileGrid()
+  }
+
+  async setBuildings(buildings: Building[], footprints: Map<string, BuildingFootprint>): Promise<void> {
+    this.buildingLayer.removeChildren()
+
+    const sorted = [...buildings].sort((a, b) => a.x + a.y - (b.x + b.y))
+
+    for (const building of sorted) {
+      const footprint = footprints.get(building.buildingType) ?? { width: 1, height: 1 }
+      const url = getBuildingTextureUrl(building.buildingType, building.state)
+      if (!url) continue
+
+      const texture = await Assets.load<Texture>(url)
+      const sprite = new Sprite(texture)
+      this.anchorBuildingSprite(sprite, building.x, building.y, footprint)
+
+      this.buildingLayer.addChild(sprite)
+    }
+  }
+
+  async showPlacementPreview(
+    code: string,
+    x: number,
+    y: number,
+    footprint: BuildingFootprint,
+    isValid: boolean,
+  ): Promise<void> {
+    const url = getBuildingTextureUrl(code, 'active')
+    if (!url) return
+
+    const texture = await Assets.load<Texture>(url)
+    this.previewLayer.removeChildren()
+
+    const color = isValid ? PLACEMENT_VALID_COLOR : PLACEMENT_INVALID_COLOR
+
+    for (let dx = 0; dx < footprint.width; dx++) {
+      for (let dy = 0; dy < footprint.height; dy++) {
+        const { screenX, screenY } = tileToScreen(x + dx, y + dy)
+        this.previewLayer.addChild(
+          new Graphics().poly(diamondPoints(screenX, screenY)).fill({ color, alpha: 0.45 }),
+        )
+      }
+    }
+
+    const sprite = new Sprite(texture)
+    sprite.alpha = 0.8
+    this.anchorBuildingSprite(sprite, x, y, footprint)
+    this.previewLayer.addChild(sprite)
+  }
+
+  private anchorBuildingSprite(sprite: Sprite, x: number, y: number, footprint: BuildingFootprint): void {
+    const bounds = footprintScreenBounds(x, y, footprint.width, footprint.height)
+    const groundCenterX = bounds.left + bounds.width / 2
+    const groundCenterY = bounds.top + bounds.height
+
+    sprite.scale.set(BUILDING_SCALE)
+    sprite.x = groundCenterX - (sprite.texture.width * BUILDING_SCALE) / 2
+    sprite.y = groundCenterY - sprite.texture.height * BUILDING_SCALE
+  }
+
+  hidePlacementPreview(): void {
+    this.previewLayer.removeChildren()
   }
 
   private async drawTileGrid(): Promise<void> {
     const textures = await this.loadTerrainTextures()
-    const halfWidth = TILE_WIDTH / 2
+    const tiles: { x: number; y: number }[] = []
 
     for (let x = 0; x < MAP_WIDTH; x++) {
       for (let y = 0; y < MAP_HEIGHT; y++) {
-        const { screenX, screenY } = tileToScreen(x, y)
-        const points = diamondPoints(screenX, screenY)
-        const variant = pickTileVariant(x, y, DEFAULT_TERRAIN)
-        const texture = textures.get(variant)
+        tiles.push({ x, y })
+      }
+    }
 
-        if (texture) {
-          const mask = new Graphics().poly(points).fill(0xffffff)
-          const tile = new Sprite(texture)
-          tile.x = screenX - halfWidth
-          tile.y = screenY
-          tile.width = TILE_WIDTH
-          tile.height = TILE_HEIGHT
-          tile.mask = mask
+    // 타일 아트에 두께(입체감)가 있어 뒤에서 앞 순서로 그려야 자연스럽게 겹친다.
+    tiles.sort((a, b) => a.x + a.y - (b.x + b.y))
 
-          this.view.addChild(mask)
-          this.view.addChild(tile)
-        } else {
-          this.view.addChild(
-            new Graphics().poly(points).fill({ color: (x + y) % 2 === 0 ? 0x2a2a38 : 0x24242f }),
-          )
-        }
+    for (const { x, y } of tiles) {
+      const { screenX, screenY } = tileToScreen(x, y)
+      const variant = pickTileVariant(x, y, DEFAULT_TERRAIN)
+      const texture = textures.get(variant)
 
-        this.view.addChild(new Graphics().poly(points).stroke({ color: 0x000000, alpha: 0.15, width: 1 }))
+      if (texture) {
+        const tile = new Sprite(texture)
+        tile.x = screenX - texture.width / 2
+        tile.y = screenY - TERRAIN_TOP_PADDING
+
+        this.terrainLayer.addChild(tile)
+      } else {
+        this.terrainLayer.addChild(
+          new Graphics()
+            .poly(diamondPoints(screenX, screenY))
+            .fill({ color: (x + y) % 2 === 0 ? 0x2a2a38 : 0x24242f }),
+        )
       }
     }
   }

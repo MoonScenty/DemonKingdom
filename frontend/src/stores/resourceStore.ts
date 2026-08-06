@@ -11,9 +11,16 @@ export const useResourceStore = defineStore('resource', () => {
     }
   }
 
+  function applyDelta(amounts: Partial<Record<ResourceType, number>>) {
+    for (const [type, amount] of Object.entries(amounts) as [ResourceType, number][]) {
+      const existing = resources.value[type]
+      if (existing) existing.amount = amount
+    }
+  }
+
   function reset() {
     resources.value = {} as Record<ResourceType, ResourceState>
   }
 
-  return { resources, setResources, reset }
+  return { resources, setResources, applyDelta, reset }
 })

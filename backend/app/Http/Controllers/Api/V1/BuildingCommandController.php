@@ -75,8 +75,11 @@ class BuildingCommandController extends Controller
                             'type' => $buildingType->code,
                             'x' => $building->x,
                             'y' => $building->y,
+                            'rotation' => $building->rotation,
                             'level' => $building->level,
                             'state' => $building->state,
+                            'startedAt' => $building->started_at?->toIso8601String(),
+                            'finishesAt' => $building->finishes_at?->toIso8601String(),
                         ]],
                     ],
                 ];

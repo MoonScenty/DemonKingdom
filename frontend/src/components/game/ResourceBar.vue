@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { RESOURCE_LABELS } from '../../constants/resourceLabels'
 import { useResourceStore } from '../../stores/resourceStore'
 import { useWorldStore } from '../../stores/worldStore'
 import type { ResourceType } from '../../types/game'
@@ -8,18 +9,12 @@ import SyncStatusIndicator from './SyncStatusIndicator.vue'
 const resourceStore = useResourceStore()
 const worldStore = useWorldStore()
 
-const resourceOrder: { type: ResourceType; label: string }[] = [
-  { type: 'gold', label: '금화' },
-  { type: 'food', label: '식량' },
-  { type: 'wood', label: '목재' },
-  { type: 'ore', label: '광석' },
-  { type: 'mana', label: '마나' },
-]
+const resourceOrder: ResourceType[] = ['gold', 'food', 'wood', 'ore', 'mana']
 
 const amounts = computed(() =>
-  resourceOrder.map(({ type, label }) => ({
+  resourceOrder.map((type) => ({
     type,
-    label,
+    label: RESOURCE_LABELS[type],
     amount: resourceStore.resources[type]?.amount ?? 0,
   })),
 )
