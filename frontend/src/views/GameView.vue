@@ -19,6 +19,7 @@ onMounted(async () => {
 
   pixiApp = await createPixiApp(cityCanvasContainer.value)
   cityRenderer = new CityRenderer(pixiApp)
+  await cityRenderer.ready
   cameraController = new CameraController(pixiApp, cityRenderer.view)
   cameraController.centerView()
 
