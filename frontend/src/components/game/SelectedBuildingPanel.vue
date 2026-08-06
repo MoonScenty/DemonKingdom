@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { BUILDING_STATE_LABELS } from '../../constants/buildingStateLabels'
 import { RESOURCE_LABELS } from '../../constants/resourceLabels'
+import { useResidentStore } from '../../stores/residentStore'
 import type { Building } from '../../types/game'
 import type { BuildingCatalogEntry } from '../../types/gameConfig'
 
@@ -10,17 +11,30 @@ const props = defineProps<{
   catalogEntry: BuildingCatalogEntry | undefined
   isMoving: boolean
   isCollecting: boolean
+  isAssigning: boolean
 }>()
 
 const emit = defineEmits<{
   move: []
   remove: []
   collect: []
+  assign: []
   close: []
 }>()
 
+const residentStore = useResidentStore()
+
 const isCastle = computed(() => props.building.buildingType === 'castle')
 const hasCollectible = computed(() => (props.building.production?.storedAmount ?? 0) > 0)
+
+const assignedCount = computed(
+  () => residentStore.residents.filter((resident) => resident.assignedBuildingId === props.building.id).length,
+)
+const workerCapacity = computed(() => props.catalogEntry?.workerCapacity ?? 0)
+const hasIdleResident = computed(() => residentStore.residents.some((resident) => resident.currentState === 'idle'))
+const canAssign = computed(
+  () => props.building.state === 'active' && workerCapacity.value > assignedCount.value && hasIdleResident.value,
+)
 </script>
 
 <template>
@@ -31,6 +45,7 @@ const hasCollectible = computed(() => (props.building.production?.storedAmount ?
       <span v-if="building.production" class="production">
         {{ RESOURCE_LABELS[building.production.resourceType] }} {{ building.production.storedAmount }}개 대기
       </span>
+      <span v-if="workerCapacity > 0" class="workers">주민 {{ assignedCount }}/{{ workerCapacity }}</span>
     </div>
     <div class="actions">
       <button
@@ -40,6 +55,9 @@ const hasCollectible = computed(() => (props.building.production?.storedAmount ?
         @click="emit('collect')"
       >
         수확
+      </button>
+      <button v-if="workerCapacity > 0" type="button" :disabled="!canAssign || isAssigning" @click="emit('assign')">
+        주민 배정
       </button>
       <button type="button" :disabled="isMoving" @click="emit('move')">
         {{ isMoving ? '이동할 타일을 클릭하세요' : '이동' }}
@@ -78,6 +96,11 @@ const hasCollectible = computed(() => (props.building.production?.storedAmount ?
 .production {
   font-size: 0.75rem;
   color: #7fd97f;
+}
+
+.workers {
+  font-size: 0.75rem;
+  color: #a0a0ac;
 }
 
 .actions {

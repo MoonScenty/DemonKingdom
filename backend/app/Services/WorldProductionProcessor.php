@@ -7,6 +7,7 @@ use App\Models\BuildingLevelDefinition;
 use App\Models\BuildingProduction;
 use App\Models\GameWorld;
 use App\Models\ProductionRecipe;
+use App\Models\Resident;
 use Carbon\CarbonInterface;
 
 class WorldProductionProcessor
@@ -34,7 +35,11 @@ class WorldProductionProcessor
         $now = now();
 
         $buildings = $world->buildings()
-            ->with(['buildingType', 'productions' => fn ($query) => $query->where('is_active', true)])
+            ->with([
+                'buildingType',
+                'productions' => fn ($query) => $query->where('is_active', true),
+                'assignedResidents.residentType',
+            ])
             ->get();
 
         foreach ($buildings as $building) {
@@ -91,6 +96,8 @@ class WorldProductionProcessor
             return;
         }
 
+        $outputPerCycle = $this->outputPerCycle($building, $recipe);
+
         $levelDefinition = BuildingLevelDefinition::where('building_type_id', $building->building_type_id)
             ->where('level', $building->level)
             ->first();
@@ -98,7 +105,7 @@ class WorldProductionProcessor
 
         if ($storageCapacity !== null) {
             $room = max(0, $storageCapacity - $production->stored_amount);
-            $cycles = min($cycles, intdiv($room, $recipe->output_amount));
+            $cycles = min($cycles, intdiv($room, $outputPerCycle));
         }
 
         $inputResource = null;
@@ -116,9 +123,21 @@ class WorldProductionProcessor
             $inputResource->decrement('amount', $cycles * $recipe->input_amount);
         }
 
-        $production->stored_amount += $cycles * $recipe->output_amount;
+        $production->stored_amount += $cycles * $outputPerCycle;
         $production->last_processed_at = $production->last_processed_at->copy()->addSeconds($cycles * $recipe->duration_seconds);
         $production->next_completion_at = $production->last_processed_at->copy()->addSeconds($recipe->duration_seconds);
         $production->save();
+    }
+
+    /**
+     * 배정된 주민의 생산 스탯만큼 사이클당 생산량을 늘린다(가산 % 보너스).
+     */
+    private function outputPerCycle(Building $building, ProductionRecipe $recipe): int
+    {
+        $bonusPercent = $building->assignedResidents->sum(
+            fn (Resident $resident) => $resident->residentType->base_production,
+        );
+
+        return (int) round($recipe->output_amount * (1 + $bonusPercent / 100));
     }
 }

@@ -58,6 +58,8 @@ function handleClick(code: string) {
 <style scoped>
 .building-palette {
   width: 220px;
+  flex: 1;
+  min-height: 0;
   padding: 0.8em;
   background-color: #1c1c26;
   border-left: 1px solid #33333f;

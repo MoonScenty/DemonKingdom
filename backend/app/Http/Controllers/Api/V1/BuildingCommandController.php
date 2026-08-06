@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Exceptions\CommandConflictException;
 use App\Exceptions\GameRuleViolationException;
+use App\Http\Controllers\Api\V1\Concerns\HandlesGameCommands;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\CollectBuildingRequest;
 use App\Http\Requests\Api\V1\MoveBuildingRequest;
@@ -11,17 +11,14 @@ use App\Http\Requests\Api\V1\PlaceBuildingRequest;
 use App\Http\Requests\Api\V1\RemoveBuildingRequest;
 use App\Models\Building;
 use App\Models\BuildingDefinition;
-use App\Models\GameActionLog;
-use App\Models\GameCommand;
 use App\Models\GameWorld;
 use App\Services\WorldProductionProcessor;
-use Closure;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 
 class BuildingCommandController extends Controller
 {
+    use HandlesGameCommands;
+
     private const MAP_WIDTH = 20;
 
     private const MAP_HEIGHT = 20;
@@ -36,7 +33,7 @@ class BuildingCommandController extends Controller
         $buildingType = BuildingDefinition::where('code', $payload['buildingType'])->firstOrFail();
         $levelOne = $buildingType->levels()->where('level', 1)->firstOrFail();
 
-        return $this->runCommand($world, $request, 'building.place', function (GameWorld $lockedWorld) use ($payload, $buildingType, $levelOne) {
+        return $this->runCommand($world, $request, 'building.place', 'building', function (GameWorld $lockedWorld) use ($payload, $buildingType, $levelOne) {
             $this->assertPlacementIsFree($lockedWorld, (int) $payload['x'], (int) $payload['y'], $buildingType, null);
             $updatedResources = $this->chargeResources($lockedWorld, $levelOne->build_cost ?? []);
 
@@ -66,7 +63,7 @@ class BuildingCommandController extends Controller
         $this->assertBuildingBelongsToWorld($building, $world);
         $payload = $request->validated('payload');
 
-        return $this->runCommand($world, $request, 'building.move', function (GameWorld $lockedWorld) use ($payload, $building) {
+        return $this->runCommand($world, $request, 'building.move', 'building', function (GameWorld $lockedWorld) use ($payload, $building) {
             $building->refresh();
             $buildingType = $building->buildingType;
 
@@ -91,7 +88,7 @@ class BuildingCommandController extends Controller
     {
         $this->assertBuildingBelongsToWorld($building, $world);
 
-        return $this->runCommand($world, $request, 'building.remove', function () use ($building) {
+        return $this->runCommand($world, $request, 'building.remove', 'building', function () use ($building) {
             $buildingType = $building->buildingType;
 
             if ($buildingType->code === 'castle') {
@@ -114,7 +111,7 @@ class BuildingCommandController extends Controller
     {
         $this->assertBuildingBelongsToWorld($building, $world);
 
-        return $this->runCommand($world, $request, 'building.collect', function (GameWorld $lockedWorld) use ($building) {
+        return $this->runCommand($world, $request, 'building.collect', 'building', function (GameWorld $lockedWorld) use ($building) {
             $production = $building->productions()->where('is_active', true)->first();
 
             if (! $production || $production->stored_amount <= 0) {
@@ -152,81 +149,6 @@ class BuildingCommandController extends Controller
     private function assertBuildingBelongsToWorld(Building $building, GameWorld $world): void
     {
         abort_if($building->game_world_id !== $world->id, 404);
-    }
-
-    /**
-     * 명령 처리 공통 골격: 인증/멱등성 확인 → 트랜잭션 + 월드 행 잠금 → revision 검사 →
-     * 실제 처리 → 명령/행동 로그 기록 → revision 증가.
-     */
-    private function runCommand(GameWorld $world, FormRequest $request, string $commandType, Closure $apply): JsonResponse
-    {
-        abort_if($world->user_id !== $request->user()->id, 403, '이 월드에 접근할 권한이 없습니다.');
-
-        $commandId = $request->validated('commandId');
-
-        $existing = GameCommand::where('game_world_id', $world->id)
-            ->where('command_id', $commandId)
-            ->first();
-
-        if ($existing) {
-            return response()->json($existing->response_payload, $existing->status === 'completed' ? 200 : 422);
-        }
-
-        try {
-            $response = DB::transaction(function () use ($request, $world, $commandId, $commandType, $apply) {
-                /** @var GameWorld $lockedWorld */
-                $lockedWorld = GameWorld::whereKey($world->id)->lockForUpdate()->firstOrFail();
-                $this->processor->process($lockedWorld);
-                $lockedWorld->refresh();
-
-                if ($lockedWorld->revision !== (int) $request->validated('baseRevision')) {
-                    throw new CommandConflictException($lockedWorld->revision);
-                }
-
-                $outcome = $apply($lockedWorld);
-
-                $lockedWorld->increment('revision');
-                $lockedWorld->refresh();
-
-                $result = [
-                    'success' => true,
-                    'revision' => $lockedWorld->revision,
-                    'serverTime' => now()->toIso8601String(),
-                    'changes' => $outcome['changes'],
-                ];
-
-                GameCommand::create([
-                    'game_world_id' => $world->id,
-                    'user_id' => $request->user()->id,
-                    'command_id' => $commandId,
-                    'command_type' => $commandType,
-                    'base_revision' => $request->validated('baseRevision'),
-                    'status' => 'completed',
-                    'request_payload' => $request->validated(),
-                    'response_payload' => $result,
-                    'completed_at' => now(),
-                ]);
-
-                GameActionLog::create([
-                    'game_world_id' => $world->id,
-                    'user_id' => $request->user()->id,
-                    'action_type' => $commandType,
-                    'target_type' => 'building',
-                    'target_id' => $outcome['targetId'],
-                    'before_payload' => null,
-                    'after_payload' => $result['changes'],
-                    'ip_address' => $request->ip(),
-                ]);
-
-                return $result;
-            });
-        } catch (CommandConflictException $exception) {
-            return response()->json(['success' => false, 'revision' => $exception->latestRevision], 409);
-        } catch (GameRuleViolationException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 422);
-        }
-
-        return response()->json($response);
     }
 
     /**
@@ -281,31 +203,5 @@ class BuildingCommandController extends Controller
         if ($overlaps) {
             throw new GameRuleViolationException('이미 다른 건물이 있는 타일입니다.');
         }
-    }
-
-    /**
-     * @param  array<string, int>  $cost
-     * @return array<string, int>
-     */
-    private function chargeResources(GameWorld $world, array $cost): array
-    {
-        $resources = $world->resources()->get()->keyBy('resource_type');
-        $updated = [];
-
-        foreach ($cost as $type => $amount) {
-            $resource = $resources->get($type);
-
-            if (! $resource || $resource->amount < $amount) {
-                throw new GameRuleViolationException("{$type} 자원이 부족합니다.");
-            }
-        }
-
-        foreach ($cost as $type => $amount) {
-            $resource = $resources->get($type);
-            $resource->decrement('amount', $amount);
-            $updated[$type] = $resource->fresh()->amount;
-        }
-
-        return $updated;
     }
 }

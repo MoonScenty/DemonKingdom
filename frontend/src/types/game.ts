@@ -29,6 +29,7 @@ export interface Building {
 export type ResidentRace = 'slime' | 'goblin' | 'ogre' | 'imp' | 'vampire' | 'lich'
 
 export type ResidentCurrentState =
+  | 'idle'
   | 'working'
   | 'moving'
   | 'resting'

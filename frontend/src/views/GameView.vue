@@ -3,6 +3,7 @@ import type { Application } from 'pixi.js'
 import { AxiosError } from 'axios'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BuildingPalette from '../components/game/BuildingPalette.vue'
+import ResidentPanel from '../components/game/ResidentPanel.vue'
 import ResourceBar from '../components/game/ResourceBar.vue'
 import SelectedBuildingPanel from '../components/game/SelectedBuildingPanel.vue'
 import { CameraController } from '../game/core/CameraController'
@@ -17,9 +18,12 @@ import {
   removeBuilding,
   type PlacedBuildingChange,
 } from '../services/commands/buildingCommandService'
+import { assignResident, recruitResident, unassignResident } from '../services/commands/residentCommandService'
 import { CommandConflictError } from '../types/command'
+import type { ResidentRace } from '../types/game'
 import { useBuildingCatalogStore } from '../stores/buildingCatalogStore'
 import { useBuildingStore } from '../stores/buildingStore'
+import { useResidentStore } from '../stores/residentStore'
 import { useResourceStore } from '../stores/resourceStore'
 import { useSyncStore } from '../stores/syncStore'
 import { useWorldStore } from '../stores/worldStore'
@@ -28,6 +32,7 @@ const cityCanvasContainer = ref<HTMLDivElement | null>(null)
 const worldStore = useWorldStore()
 const buildingStore = useBuildingStore()
 const buildingCatalogStore = useBuildingCatalogStore()
+const residentStore = useResidentStore()
 const resourceStore = useResourceStore()
 const syncStore = useSyncStore()
 
@@ -35,6 +40,9 @@ const activeCode = ref<string | null>(null)
 const selectedBuildingId = ref<number | null>(null)
 const isMoving = ref(false)
 const isCollecting = ref(false)
+const isAssigning = ref(false)
+const recruitingRace = ref<ResidentRace | null>(null)
+const activeTab = ref<'build' | 'residents'>('build')
 
 let pixiApp: Application | null = null
 let cityRenderer: CityRenderer | null = null
@@ -170,6 +178,69 @@ async function collectSelected() {
   }
 }
 
+async function recruitResidentHandler(race: ResidentRace) {
+  const worldId = worldStore.worldId
+  if (!worldId) return
+
+  recruitingRace.value = race
+  try {
+    const response = await recruitResident(worldId, race, worldStore.revision)
+
+    worldStore.setRevision(response.revision)
+    resourceStore.applyDelta(response.changes.resources)
+    for (const resident of response.changes.residents) {
+      residentStore.upsertResident(resident)
+    }
+
+    syncStore.setStatus('synced')
+  } catch (error) {
+    await handleCommandError(error, worldId)
+  } finally {
+    recruitingRace.value = null
+  }
+}
+
+async function assignToSelected() {
+  const building = selectedBuilding.value
+  const worldId = worldStore.worldId
+  const idleResident = residentStore.residents.find((resident) => resident.currentState === 'idle')
+  if (!building || !worldId || !idleResident) return
+
+  isAssigning.value = true
+  try {
+    const response = await assignResident(worldId, idleResident.id, building.id, worldStore.revision)
+
+    worldStore.setRevision(response.revision)
+    for (const resident of response.changes.residents) {
+      residentStore.upsertResident(resident)
+    }
+
+    syncStore.setStatus('synced')
+  } catch (error) {
+    await handleCommandError(error, worldId)
+  } finally {
+    isAssigning.value = false
+  }
+}
+
+async function unassignResidentHandler(residentId: number) {
+  const worldId = worldStore.worldId
+  if (!worldId) return
+
+  try {
+    const response = await unassignResident(worldId, residentId, worldStore.revision)
+
+    worldStore.setRevision(response.revision)
+    for (const resident of response.changes.residents) {
+      residentStore.upsertResident(resident)
+    }
+
+    syncStore.setStatus('synced')
+  } catch (error) {
+    await handleCommandError(error, worldId)
+  }
+}
+
 async function confirmPlacement(code: string, x: number, y: number) {
   const worldId = worldStore.worldId
   if (!worldId) return
@@ -288,13 +359,36 @@ onBeforeUnmount(() => {
           :catalog-entry="selectedCatalogEntry"
           :is-moving="isMoving"
           :is-collecting="isCollecting"
+          :is-assigning="isAssigning"
           @move="startMoving"
           @remove="removeSelected"
           @collect="collectSelected"
+          @assign="assignToSelected"
           @close="selectedBuildingId = null"
         />
       </div>
-      <BuildingPalette :active-code="activeCode" @select="selectBuilding" @cancel="cancelPlacement" />
+      <div class="side-panel">
+        <div class="tabs">
+          <button type="button" :class="{ active: activeTab === 'build' }" @click="activeTab = 'build'">
+            건설
+          </button>
+          <button type="button" :class="{ active: activeTab === 'residents' }" @click="activeTab = 'residents'">
+            주민
+          </button>
+        </div>
+        <BuildingPalette
+          v-if="activeTab === 'build'"
+          :active-code="activeCode"
+          @select="selectBuilding"
+          @cancel="cancelPlacement"
+        />
+        <ResidentPanel
+          v-else
+          :recruiting-race="recruitingRace"
+          @recruit="recruitResidentHandler"
+          @unassign="unassignResidentHandler"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -316,5 +410,32 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   overflow: hidden;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  display: flex;
+  background-color: #1c1c26;
+  border-left: 1px solid #33333f;
+  border-bottom: 1px solid #33333f;
+}
+
+.tabs button {
+  flex: 1;
+  padding: 0.6em;
+  background: transparent;
+  border: none;
+  color: #a0a0ac;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.tabs button.active {
+  color: #f2f0e6;
+  border-bottom: 2px solid #a8483c;
 }
 </style>

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BuildingCommandController;
 use App\Http\Controllers\Api\V1\GameConfigController;
+use App\Http\Controllers\Api\V1\ResidentCommandController;
 use App\Http\Controllers\Api\V1\WorldController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,5 +25,8 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('/worlds/{world}/buildings/{building}/move', [BuildingCommandController::class, 'move']);
         Route::delete('/worlds/{world}/buildings/{building}', [BuildingCommandController::class, 'remove']);
         Route::post('/worlds/{world}/buildings/{building}/collect', [BuildingCommandController::class, 'collect']);
+        Route::post('/worlds/{world}/residents', [ResidentCommandController::class, 'recruit']);
+        Route::post('/worlds/{world}/residents/{resident}/assign', [ResidentCommandController::class, 'assign']);
+        Route::post('/worlds/{world}/residents/{resident}/unassign', [ResidentCommandController::class, 'unassign']);
     });
 });
