@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Exceptions\CommandConflictException;
 use App\Exceptions\GameRuleViolationException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\CollectBuildingRequest;
 use App\Http\Requests\Api\V1\MoveBuildingRequest;
 use App\Http\Requests\Api\V1\PlaceBuildingRequest;
 use App\Http\Requests\Api\V1\RemoveBuildingRequest;
@@ -13,6 +14,7 @@ use App\Models\BuildingDefinition;
 use App\Models\GameActionLog;
 use App\Models\GameCommand;
 use App\Models\GameWorld;
+use App\Services\WorldProductionProcessor;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +25,10 @@ class BuildingCommandController extends Controller
     private const MAP_WIDTH = 20;
 
     private const MAP_HEIGHT = 20;
+
+    public function __construct(private readonly WorldProductionProcessor $processor)
+    {
+    }
 
     public function place(PlaceBuildingRequest $request, GameWorld $world): JsonResponse
     {
@@ -104,6 +110,45 @@ class BuildingCommandController extends Controller
         });
     }
 
+    public function collect(CollectBuildingRequest $request, GameWorld $world, Building $building): JsonResponse
+    {
+        $this->assertBuildingBelongsToWorld($building, $world);
+
+        return $this->runCommand($world, $request, 'building.collect', function (GameWorld $lockedWorld) use ($building) {
+            $production = $building->productions()->where('is_active', true)->first();
+
+            if (! $production || $production->stored_amount <= 0) {
+                throw new GameRuleViolationException('수거할 생산물이 없습니다.');
+            }
+
+            $recipe = $production->recipe;
+            $resource = $lockedWorld->resources()->where('resource_type', $recipe->output_resource_type)->first();
+
+            if (! $resource) {
+                throw new GameRuleViolationException('해당 자원을 저장할 창고가 없습니다.');
+            }
+
+            $room = max(0, $resource->capacity - $resource->amount);
+            $collected = min($production->stored_amount, $room);
+
+            $resource->increment('amount', $collected);
+            $production->decrement('stored_amount', $collected);
+
+            return [
+                'targetId' => $building->id,
+                'changes' => [
+                    'resources' => [$recipe->output_resource_type => $resource->fresh()->amount],
+                    'production' => [
+                        'buildingId' => $building->id,
+                        'resourceType' => $recipe->output_resource_type,
+                        'collectedAmount' => $collected,
+                        'storedAmount' => $production->fresh()->stored_amount,
+                    ],
+                ],
+            ];
+        });
+    }
+
     private function assertBuildingBelongsToWorld(Building $building, GameWorld $world): void
     {
         abort_if($building->game_world_id !== $world->id, 404);
@@ -131,6 +176,8 @@ class BuildingCommandController extends Controller
             $response = DB::transaction(function () use ($request, $world, $commandId, $commandType, $apply) {
                 /** @var GameWorld $lockedWorld */
                 $lockedWorld = GameWorld::whereKey($world->id)->lockForUpdate()->firstOrFail();
+                $this->processor->process($lockedWorld);
+                $lockedWorld->refresh();
 
                 if ($lockedWorld->revision !== (int) $request->validated('baseRevision')) {
                     throw new CommandConflictException($lockedWorld->revision);

@@ -23,5 +23,6 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/worlds/{world}/buildings', [BuildingCommandController::class, 'place']);
         Route::patch('/worlds/{world}/buildings/{building}/move', [BuildingCommandController::class, 'move']);
         Route::delete('/worlds/{world}/buildings/{building}', [BuildingCommandController::class, 'remove']);
+        Route::post('/worlds/{world}/buildings/{building}/collect', [BuildingCommandController::class, 'collect']);
     });
 });

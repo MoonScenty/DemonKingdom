@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BuildingDefinition;
 use App\Models\GameWorld;
 use App\Models\User;
+use App\Services\WorldProductionProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,10 @@ class WorldController extends Controller
         'ore' => ['amount' => 0, 'capacity' => 500],
         'mana' => ['amount' => 0, 'capacity' => 200],
     ];
+
+    public function __construct(private readonly WorldProductionProcessor $processor)
+    {
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -48,6 +53,7 @@ class WorldController extends Controller
     public function state(Request $request, GameWorld $world): JsonResponse
     {
         $this->authorizeOwner($request, $world);
+        $world = $this->processWorld($world);
         $this->loadWorldRelations($world);
 
         return response()->json($this->serializeState($world));
@@ -56,6 +62,7 @@ class WorldController extends Controller
     public function changes(Request $request, GameWorld $world): JsonResponse
     {
         $this->authorizeOwner($request, $world);
+        $world = $this->processWorld($world);
 
         $afterRevision = (int) $request->query('afterRevision', 0);
 
@@ -74,9 +81,32 @@ class WorldController extends Controller
         abort_if($world->user_id !== $request->user()->id, 403, '이 월드에 접근할 권한이 없습니다.');
     }
 
+    /**
+     * README 7.2: 월드 조회 시점마다 마지막 처리 시각 이후 경과를 계산해
+     * 건설 완료와 생산 누적을 반영한다.
+     */
+    private function processWorld(GameWorld $world): GameWorld
+    {
+        return DB::transaction(function () use ($world) {
+            /** @var GameWorld $lockedWorld */
+            $lockedWorld = GameWorld::whereKey($world->id)->lockForUpdate()->firstOrFail();
+            $this->processor->process($lockedWorld);
+
+            return $lockedWorld->fresh();
+        });
+    }
+
     private function loadWorldRelations(GameWorld $world): void
     {
-        $world->load(['resources', 'buildings.buildingType', 'residents.residentType', 'quests', 'events']);
+        $world->load([
+            'resources',
+            'buildings.buildingType',
+            'buildings.productions' => fn ($query) => $query->where('is_active', true),
+            'buildings.productions.recipe',
+            'residents.residentType',
+            'quests',
+            'events',
+        ]);
     }
 
     private function createWorldForUser(User $user): GameWorld
@@ -145,17 +175,25 @@ class WorldController extends Controller
                 'amount' => $resource->amount,
                 'capacity' => $resource->capacity,
             ])->values(),
-            'buildings' => $world->buildings->map(fn ($building) => [
-                'id' => $building->id,
-                'buildingType' => $building->buildingType->code,
-                'x' => $building->x,
-                'y' => $building->y,
-                'rotation' => $building->rotation,
-                'level' => $building->level,
-                'state' => $building->state,
-                'startedAt' => optional($building->started_at)->toIso8601String(),
-                'finishesAt' => optional($building->finishes_at)->toIso8601String(),
-            ])->values(),
+            'buildings' => $world->buildings->map(function ($building) {
+                $production = $building->productions->first();
+
+                return [
+                    'id' => $building->id,
+                    'buildingType' => $building->buildingType->code,
+                    'x' => $building->x,
+                    'y' => $building->y,
+                    'rotation' => $building->rotation,
+                    'level' => $building->level,
+                    'state' => $building->state,
+                    'startedAt' => optional($building->started_at)->toIso8601String(),
+                    'finishesAt' => optional($building->finishes_at)->toIso8601String(),
+                    'production' => $production ? [
+                        'resourceType' => $production->recipe->output_resource_type,
+                        'storedAmount' => $production->stored_amount,
+                    ] : null,
+                ];
+            })->values(),
             'residents' => $world->residents->map(fn ($resident) => [
                 'id' => $resident->id,
                 'residentType' => $resident->residentType->race,

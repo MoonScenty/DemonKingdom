@@ -8,6 +8,11 @@ export interface ResourceState {
 
 export type BuildingState = 'ruin' | 'constructing' | 'active' | 'upgrading'
 
+export interface BuildingProductionState {
+  resourceType: ResourceType
+  storedAmount: number
+}
+
 export interface Building {
   id: number
   buildingType: string
@@ -18,6 +23,7 @@ export interface Building {
   state: BuildingState
   startedAt: string | null
   finishesAt: string | null
+  production: BuildingProductionState | null
 }
 
 export type ResidentRace = 'slime' | 'goblin' | 'ogre' | 'imp' | 'vampire' | 'lich'

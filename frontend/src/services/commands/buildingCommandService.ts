@@ -76,3 +76,26 @@ export function removeBuilding(
     'delete',
   )
 }
+
+export interface CollectBuildingChanges {
+  resources: Partial<Record<ResourceType, number>>
+  production: {
+    buildingId: number
+    resourceType: ResourceType
+    collectedAmount: number
+    storedAmount: number
+  }
+}
+
+export function collectBuilding(
+  worldId: number,
+  buildingId: number,
+  baseRevision: number,
+): Promise<CommandResponse<CollectBuildingChanges>> {
+  return sendCommand(
+    `/worlds/${worldId}/buildings/${buildingId}/collect`,
+    'building.collect',
+    {},
+    baseRevision,
+  )
+}

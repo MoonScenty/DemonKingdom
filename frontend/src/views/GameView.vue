@@ -180,6 +180,9 @@ async function confirmMove(buildingId: number, x: number, y: number) {
 function upsertBuildingFromChange(change: PlacedBuildingChange | undefined) {
   if (!change) return
 
+  // place/move 응답에는 production 정보가 없으므로 기존 값을 그대로 유지한다.
+  const existing = buildingStore.buildings.find((building) => building.id === change.id)
+
   buildingStore.upsertBuilding({
     id: change.id,
     buildingType: change.type,
@@ -190,6 +193,7 @@ function upsertBuildingFromChange(change: PlacedBuildingChange | undefined) {
     state: change.state,
     startedAt: change.startedAt,
     finishesAt: change.finishesAt,
+    production: existing?.production ?? null,
   })
 }
 
