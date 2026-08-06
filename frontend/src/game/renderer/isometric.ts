@@ -1,5 +1,5 @@
 export const TILE_WIDTH = 64
-export const TILE_HEIGHT = 46
+export const TILE_HEIGHT = 43
 export const MAP_WIDTH = 20
 export const MAP_HEIGHT = 20
 

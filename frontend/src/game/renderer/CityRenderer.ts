@@ -1,7 +1,15 @@
-import { Application, Assets, Container, Graphics, Sprite, type Texture } from 'pixi.js'
+import { Application, Assets, BlurFilter, Container, Graphics, Sprite, type Texture } from 'pixi.js'
 import { getBuildingTextureUrl } from './buildingAssets'
 import { getTerrainTileUrl } from './terrainAssets'
-import { diamondPoints, footprintScreenBounds, tileToScreen, MAP_HEIGHT, MAP_WIDTH } from './isometric'
+import {
+  diamondPoints,
+  footprintScreenBounds,
+  tileToScreen,
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  TILE_HEIGHT,
+  TILE_WIDTH,
+} from './isometric'
 import { pickTileVariant, TERRAIN_VARIANT_COUNT } from './tileVariant'
 import type { Building } from '../../types/game'
 
@@ -12,6 +20,9 @@ const TERRAIN_TOP_PADDING = 6
 const BUILDING_SCALE = 2 / 5
 const PLACEMENT_VALID_COLOR = 0x3b82f6
 const PLACEMENT_INVALID_COLOR = 0xff5c5c
+const SHADOW_COLOR = 0x000000
+const SHADOW_ALPHA = 0.4
+const SHADOW_BLUR = 6
 
 export interface BuildingFootprint {
   width: number
@@ -58,6 +69,7 @@ export class CityRenderer {
         this.buildingClickHandler?.(building.id)
       })
 
+      this.buildingLayer.addChild(this.createShadow(building.x, building.y, footprint))
       this.buildingLayer.addChild(sprite)
     }
   }
@@ -86,10 +98,29 @@ export class CityRenderer {
       }
     }
 
+    this.previewLayer.addChild(this.createShadow(x, y, footprint))
+
     const sprite = new Sprite(texture)
     sprite.alpha = 0.8
     this.anchorBuildingSprite(sprite, x, y, footprint)
     this.previewLayer.addChild(sprite)
+  }
+
+  private createShadow(x: number, y: number, footprint: BuildingFootprint): Graphics {
+    const bounds = footprintScreenBounds(x, y, footprint.width, footprint.height)
+    // 그림자를 건물 뒤쪽(화면상 위쪽)에 둬서 건물이 그림자 앞에 서 있는 느낌을 준다.
+    const centerX = bounds.left + bounds.width / 2
+    const centerY = bounds.top + bounds.height - TILE_HEIGHT * 1.25
+    const radiusX = TILE_WIDTH * 0.55
+    const radiusY = radiusX * (TILE_HEIGHT / TILE_WIDTH)
+
+    const shadow = new Graphics()
+      .ellipse(centerX, centerY, radiusX, radiusY)
+      .fill({ color: SHADOW_COLOR, alpha: SHADOW_ALPHA })
+
+    shadow.filters = [new BlurFilter({ strength: SHADOW_BLUR })]
+
+    return shadow
   }
 
   private anchorBuildingSprite(sprite: Sprite, x: number, y: number, footprint: BuildingFootprint): void {
