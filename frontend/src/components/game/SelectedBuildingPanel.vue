@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { BUILDING_STATE_LABELS } from '../../constants/buildingStateLabels'
+import { RESOURCE_LABELS } from '../../constants/resourceLabels'
 import type { Building } from '../../types/game'
 import type { BuildingCatalogEntry } from '../../types/gameConfig'
 
@@ -8,15 +9,18 @@ const props = defineProps<{
   building: Building
   catalogEntry: BuildingCatalogEntry | undefined
   isMoving: boolean
+  isCollecting: boolean
 }>()
 
 const emit = defineEmits<{
   move: []
   remove: []
+  collect: []
   close: []
 }>()
 
 const isCastle = computed(() => props.building.buildingType === 'castle')
+const hasCollectible = computed(() => (props.building.production?.storedAmount ?? 0) > 0)
 </script>
 
 <template>
@@ -24,8 +28,19 @@ const isCastle = computed(() => props.building.buildingType === 'castle')
     <div class="info">
       <strong>{{ catalogEntry?.name ?? building.buildingType }}</strong>
       <span class="state">{{ BUILDING_STATE_LABELS[building.state] }} · Lv.{{ building.level }}</span>
+      <span v-if="building.production" class="production">
+        {{ RESOURCE_LABELS[building.production.resourceType] }} {{ building.production.storedAmount }}개 대기
+      </span>
     </div>
     <div class="actions">
+      <button
+        v-if="building.production"
+        type="button"
+        :disabled="!hasCollectible || isCollecting"
+        @click="emit('collect')"
+      >
+        수확
+      </button>
       <button type="button" :disabled="isMoving" @click="emit('move')">
         {{ isMoving ? '이동할 타일을 클릭하세요' : '이동' }}
       </button>
@@ -58,6 +73,11 @@ const isCastle = computed(() => props.building.buildingType === 'castle')
 .state {
   font-size: 0.75rem;
   color: #a0a0ac;
+}
+
+.production {
+  font-size: 0.75rem;
+  color: #7fd97f;
 }
 
 .actions {

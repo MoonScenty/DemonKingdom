@@ -11,6 +11,7 @@ import { PlacementController } from '../game/interaction/PlacementController'
 import { CityRenderer, type BuildingFootprint } from '../game/renderer/CityRenderer'
 import { footprintsOverlap, isWithinMap } from '../game/renderer/isometric'
 import {
+  collectBuilding,
   moveBuilding,
   placeBuilding,
   removeBuilding,
@@ -33,6 +34,7 @@ const syncStore = useSyncStore()
 const activeCode = ref<string | null>(null)
 const selectedBuildingId = ref<number | null>(null)
 const isMoving = ref(false)
+const isCollecting = ref(false)
 
 let pixiApp: Application | null = null
 let cityRenderer: CityRenderer | null = null
@@ -138,6 +140,33 @@ async function removeSelected() {
     syncStore.setStatus('synced')
   } catch (error) {
     await handleCommandError(error, worldId)
+  }
+}
+
+async function collectSelected() {
+  const building = selectedBuilding.value
+  const worldId = worldStore.worldId
+  if (!building || !worldId || !building.production) return
+
+  isCollecting.value = true
+  try {
+    const response = await collectBuilding(worldId, building.id, worldStore.revision)
+
+    worldStore.setRevision(response.revision)
+    resourceStore.applyDelta(response.changes.resources)
+    buildingStore.upsertBuilding({
+      ...building,
+      production: {
+        resourceType: response.changes.production.resourceType,
+        storedAmount: response.changes.production.storedAmount,
+      },
+    })
+
+    syncStore.setStatus('synced')
+  } catch (error) {
+    await handleCommandError(error, worldId)
+  } finally {
+    isCollecting.value = false
   }
 }
 
@@ -258,8 +287,10 @@ onBeforeUnmount(() => {
           :building="selectedBuilding"
           :catalog-entry="selectedCatalogEntry"
           :is-moving="isMoving"
+          :is-collecting="isCollecting"
           @move="startMoving"
           @remove="removeSelected"
+          @collect="collectSelected"
           @close="selectedBuildingId = null"
         />
       </div>
